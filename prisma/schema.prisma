@@ -1,0 +1,424 @@
+// -------------------- GENERATOR --------------------
+generator client {
+  provider = "prisma-client-js"
+}
+
+// -------------------- DATASOURCE --------------------
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// -------------------- ENUMS --------------------
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum SystemUserRole  {
+  ADMIN
+  STOCK_MANAGER
+  KITCHEN_STAFF
+  CASHIER
+}
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+  CREATE_USER
+  UPDATE_USER
+  DELETE_USER
+  CREATE_ROLE
+  UPDATE_ROLE
+  DELETE_ROLE
+  CREATE_PERMISSION
+  UPDATE_PERMISSION
+  DELETE_PERMISSION
+  SESSION_EXPIRE
+  SESSION_REVOKE
+}
+
+enum StockMovementType {
+  IN
+  OUT
+  LOSS
+  EXPIRED
+  ADJUSTMENT
+}
+
+enum AlertType {
+  LOW_STOCK
+  EXPIRED
+  EXPIRING_SOON
+  RUPTURE
+  EXCESS
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+// -------------------- ADMIN / RBAC / MULTI-TENANT --------------------
+model Tenant {
+  id        Int          @id @default(autoincrement())
+  name      String       @unique
+  createdAt DateTime     @default(now())
+  users     TenantUser[]
+  roles     TenantRole[]
+}
+
+model User {
+  id              Int              @id @default(autoincrement())
+  email           String           @unique
+  passwordHash    String
+  status          UserStatus       @default(ACTIVE)
+  fullName        String
+  tenantUsers     TenantUser[]
+  userRoles       UserRole[]
+  userPermissions UserPermission[]
+  sessions        Session[]
+  auditLogs       AuditLog[]
+  activityLogs    ActivityLog[]
+  otps            OtpCode[]
+  stock_batches   stock_batches[]
+  materiel_movements materiel_movements[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @default(now())
+}
+
+model Role {
+  id              Int               @id @default(autoincrement())
+  name            String            @unique
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+  tenantRoles     TenantRole[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @default(now())
+}
+
+model Permission {
+  id              Int               @id @default(autoincrement())
+  name            String            @unique
+  description     String?
+  rolePermissions RolePermission[]
+  userPermissions UserPermission[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @default(now())
+  
+  @@map("permission") // <-- assure le nom exact de la table MySQL
+}
+
+model RolePermission {
+  id           Int        @id @default(autoincrement())
+  roleId       Int
+  permissionId Int
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  @@unique([roleId, permissionId])
+}
+
+model UserRole {
+  id     Int  @id @default(autoincrement())
+  userId Int
+  roleId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  @@unique([userId, roleId])
+}
+
+
+model UserPermission {
+  id           Int        @id @default(autoincrement())
+  userId       Int
+  permissionId Int
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  @@unique([userId, permissionId])
+}
+
+model Session {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  token      String   @unique
+  expiresAt  DateTime
+  ipAddress  String?
+  userAgent  String?
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  @@index([userId])
+}
+
+model AuditLog {
+  id        Int         @id @default(autoincrement())
+  userId    Int
+  action    AuditAction
+  entity    String
+  entityId  Int?
+  ip        String?
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  timestamp DateTime    @default(now())
+  @@index([userId])
+}
+
+model ActivityLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  action    String   // LOGIN | LOGOUT | PASSWORD_CHANGE | PROFILE_UPDATE | LOGIN_FAILED | OTP_VERIFIED
+  details   String?  @db.Text
+  ipAddress String?
+  userAgent String?  @db.Text
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("activity_log")
+}
+
+model TenantUser {
+  id       Int    @id @default(autoincrement())
+  tenantId Int
+  userId   Int
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([tenantId, userId])
+}
+
+model TenantRole {
+  id       Int    @id @default(autoincrement())
+  tenantId Int
+  roleId   Int
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role     Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  @@unique([tenantId, roleId])
+}
+
+model OtpCode {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  codeHash  String
+  expiresAt DateTime
+  user      User @relation(fields: [userId], references: [id])
+}
+
+// -------------------- MÉTIER / STOCK / INVENTAIRE --------------------
+model categories {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  products    products[]
+}
+
+model suppliers {
+  id           Int      @id @default(autoincrement())
+  name         String   @unique
+  contact_name String?
+  email        String?
+  phone        String?
+  address      String?
+  city         String?
+  is_active    Boolean  @default(true)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+  products     products[]
+}
+
+model units {
+  id           Int      @id @default(autoincrement())
+  name         String   @unique
+  abbreviation String   @unique
+  description  String?
+  products     products[]
+}
+
+model products {
+  id                 Int                   @id @default(autoincrement())
+  name               String
+  category_id        Int
+  unit_id            Int
+  supplier_id        Int?
+  sku                String?               @unique
+  description        String?
+  minimum_stock      Decimal               @default(10)
+  is_perishable      Boolean               @default(false)
+  is_active          Boolean               @default(true)
+  created_at         DateTime              @default(now())
+  updated_at         DateTime              @updatedAt
+  category           categories            @relation(fields: [category_id], references: [id])
+  unit               units                 @relation(fields: [unit_id], references: [id])
+  supplier           suppliers?            @relation(fields: [supplier_id], references: [id])
+  inventory_snapshots inventory_snapshots[] @relation("ProductInventorySnapshots")
+  inventory_counts   inventory_counts[]    @relation("ProductInventoryCounts")
+  alerts             alerts[]             @relation("ProductAlerts")
+  daily_consumption  daily_consumption[]   @relation("ProductDailyConsumption")
+  stock_batches      stock_batches[]      @relation("ProductStockBatches")
+  stock_movements    stock_movements[]    @relation("ProductStockMovements")
+}
+
+model inventory_snapshots {
+  id                  Int       @id @default(autoincrement())
+  product_id          Int       @unique
+  theoretical_quantity Decimal  @default(0)
+  real_quantity       Decimal   @default(0)
+  difference          Decimal   @default(0)
+  total_value         Decimal   @default(0)
+  last_updated_at     DateTime  @updatedAt
+  verified_at         DateTime?
+  verified_by         Int?
+  product             products  @relation("ProductInventorySnapshots", fields: [product_id], references: [id])
+}
+
+model inventory_counts {
+  id                  Int       @id @default(autoincrement())
+  product_id          Int
+  theoretical_quantity Decimal
+  real_quantity       Decimal
+  difference          Decimal
+  user_id             Int
+  notes               String?
+  created_at          DateTime @default(now())
+  product             products @relation("ProductInventoryCounts", fields: [product_id], references: [id])
+}
+
+model alerts {
+  id           Int           @id @default(autoincrement())
+  type         AlertType
+  product_id   Int
+  severity     AlertSeverity @default(WARNING)
+  message      String
+  is_resolved  Boolean       @default(false)
+  resolved_at  DateTime?
+  created_at   DateTime      @default(now())
+  product      products      @relation("ProductAlerts", fields: [product_id], references: [id])
+}
+
+model daily_consumption {
+  id                Int       @id @default(autoincrement())
+  product_id        Int
+  quantity_consumed Decimal
+  user_id           Int
+  notes             String?
+  created_at        DateTime @default(now())
+  product           products @relation("ProductDailyConsumption", fields: [product_id], references: [id])
+}
+
+model activity_logs {
+  id          Int      @id @default(autoincrement())
+  user_id     Int
+  action      String
+  entity_type String?
+  entity_id   Int?
+  changes     Json?
+  ip_address  String?
+  created_at  DateTime @default(now())
+}
+
+
+
+model Setting {
+  id    Int    @id @default(autoincrement())
+  key   String @unique
+  value String?
+  updatedAt DateTime @updatedAt
+}
+
+model stock_batches {
+  id                 Int       @id @default(autoincrement())
+  product_id         Int
+  user_id            Int
+  batch_number       String
+  quantity_initial   Decimal
+  quantity_remaining Decimal
+  purchase_price     Decimal
+  entry_date         DateTime  @default(now())
+  expiration_date    DateTime?
+  notes              String?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+  product            products  @relation("ProductStockBatches", fields: [product_id], references: [id])
+  user  User  @relation(fields: [user_id], references: [id], onDelete: Cascade) 
+  stock_movements    stock_movements[] @relation("BatchStockMovements")
+}
+
+model stock_movements {
+  id               Int               @id @default(autoincrement())
+  product_id       Int
+  batch_id         Int?
+  type             StockMovementType
+  quantity         Decimal
+  reason           String?
+  reference_number String?
+  user_id          Int
+  created_at       DateTime @default(now())
+  product          products       @relation("ProductStockMovements", fields: [product_id], references: [id])
+  batch            stock_batches? @relation("BatchStockMovements", fields: [batch_id], references: [id])
+}
+
+// -------------------- MATÉRIELS / ÉQUIPEMENTS --------------------
+model categories_materiels {
+  id          Int         @id @default(autoincrement())
+  name        String      @unique
+  description String?
+  is_active   Boolean     @default(true)
+  created_at  DateTime    @default(now())
+  updated_at  DateTime    @updatedAt
+  materiels   materiels[]
+}
+
+model materiels {
+  id                 Int                   @id @default(autoincrement())
+  name               String
+  category_id        Int
+  reference          String?               @unique
+  description        String?
+  quantity           Decimal               @default(0)
+  minimum_stock      Decimal               @default(1)
+  unit               String                @default("unité")
+  location           String?               // Emplacement (cuisine, salle, etc.)
+  purchase_price     Decimal?              // Prix d'achat
+  purchase_date      DateTime?             // Date d'achat
+  supplier           String?               // Fournisseur
+  is_active          Boolean               @default(true)
+  created_at         DateTime              @default(now())
+  updated_at         DateTime              @updatedAt
+  
+  category           categories_materiels  @relation(fields: [category_id], references: [id])
+  mouvements         materiel_movements[]
+  
+  @@map("materiels")
+}
+
+enum MaterielMovementType {
+  IN       // Entrée / Achat
+  OUT      // Sortie / Utilisation
+  LOSS     // Perte / Casse
+  BROKEN   // Cassé
+  OLD      // Vieux / Obsolète
+  ADJUSTMENT // Ajustement inventaire
+}
+
+model materiel_movements {
+  id               Int                  @id @default(autoincrement())
+  materiel_id      Int
+  type             MaterielMovementType
+  quantity         Decimal
+  reason           String?
+  reference_number String?
+  user_id          Int
+  created_at       DateTime             @default(now())
+  
+  materiel         materiels            @relation(fields: [materiel_id], references: [id], onDelete: Cascade)
+  user             User                 @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@index([materiel_id])
+  @@index([user_id])
+  @@map("materiel_movements")
+}

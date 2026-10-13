@@ -1,0 +1,59 @@
+git add .
+git commit -m "Mise à jour réelle du projet"
+git push origin main
+
+
+###Connexion SSH pour le tunnel vers la base de
+ données distante du serveur de production
+ssh -L 3307:127.0.0.1:3306 root@180.149.196.155
+
+
+# 1️⃣ Connexion au VPS
+ssh root@180.149.196.155
+
+# 2️⃣ Aller dans le projet
+cd /var/www/local_grill_project/
+
+# 3️⃣ Vérifier le dépôt Git
+git remote -v
+
+# 4️⃣ Récupérer les dernières mises à jour
+git pull origin  main
+
+# 5️⃣ Installer / mettre à jour les dépendances
+npm install
+npm audit fix
+
+# 6️⃣ Construire le projet
+npm run build
+
+# 7️⃣ Vérifier / éditer le fichier .env
+nano .env
+
+# 8️⃣ Démarrer / redémarrer l’application avec PM2
+pm2 restart local_grill --update-env
+pm2 list
+pm2 logs local_grill
+
+# 9️⃣ Maintenir l’application active après reboot
+pm2 save
+pm2 startup
+
+
+
+
+
+
+
+
+
+cd /var/www/local_grill_project
+
+git reset --hard origin/main
+
+
+npm install
+npx prisma generate
+npm run build
+
+pm2 restart local_grill --update-env
